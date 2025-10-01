@@ -1,0 +1,378 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "type": "object",
+  "title": "Sales Contract Payload",
+  "description": "Schema for unified sales contract data from SIF/COPS systems",
+  "required": ["source", "contractUid", "customer", "saleInfo", "planAndServices"],
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": ["SIF", "COPS"],
+      "description": "Source system identifier"
+    },
+    "contractUid": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique contract identifier"
+    },
+    "orderId": {
+      "type": "string",
+      "description": "Order identifier"
+    },
+    "ban": {
+      "type": "string",
+      "description": "Billing Account Number"
+    },
+    "subscriberNumber": {
+      "type": "string",
+      "description": "Subscriber phone number"
+    },
+    "accountType": {
+      "type": "string",
+      "enum": ["POSTPAID", "PREPAID"],
+      "description": "Account type"
+    },
+    "lob": {
+      "type": "string",
+      "enum": ["MOBILE", "FIXED", "INTERNET"],
+      "description": "Line of Business"
+    },
+    "templateId": {
+      "type": "string",
+      "description": "Contract template identifier"
+    },
+    "language": {
+      "type": "string",
+      "enum": ["es", "en"],
+      "description": "Contract language"
+    },
+    "portIn": {
+      "type": "boolean",
+      "description": "Port-in indicator"
+    },
+    "deliveryPreferences": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "sms": {
+          "type": "string"
+        },
+        "via": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["email", "sms", "mail"]
+          }
+        }
+      }
+    },
+    "customer": {
+      "type": "object",
+      "required": ["fullName", "idType", "idNumber"],
+      "properties": {
+        "fullName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idType": {
+          "type": "string",
+          "enum": ["SSN", "PASSPORT", "DRIVER_LICENSE"]
+        },
+        "idNumber": {
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "billingAddress": {
+          "type": "object",
+          "required": ["line1", "city", "state", "zip"],
+          "properties": {
+            "line1": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line2": {
+              "type": "string"
+            },
+            "city": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "zip": {
+              "type": "string",
+              "minLength": 1
+            },
+            "country": {
+              "type": "string",
+              "default": "PR"
+            }
+          }
+        }
+      }
+    },
+    "saleInfo": {
+      "type": "object",
+      "required": ["store", "seller", "saleDate"],
+      "properties": {
+        "store": {
+          "type": "object",
+          "required": ["code", "name"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "address": {
+              "type": "string"
+            },
+            "phone": {
+              "type": "string"
+            }
+          }
+        },
+        "seller": {
+          "type": "object",
+          "required": ["name", "employeeId"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "employeeId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          }
+        },
+        "saleDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closeDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "planAndServices": {
+      "type": "object",
+      "required": ["plan"],
+      "properties": {
+        "plan": {
+          "type": "object",
+          "required": ["name", "code", "basePrice"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "billingCycle": {
+              "type": "string",
+              "enum": ["MONTHLY", "ANNUAL"]
+            },
+            "dataPolicy": {
+              "type": "string"
+            },
+            "basePrice": {
+              "type": "number",
+              "minimum": 0
+            },
+            "termMonths": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "addons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "price": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "imei": {
+            "type": "string"
+          },
+          "iccid": {
+            "type": "string"
+          },
+          "esimEid": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tax": {
+            "type": "number",
+            "minimum": 0
+          },
+          "discount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "financing": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "installments": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "downPayment": {
+                "type": "number",
+                "minimum": 0
+              },
+              "monthlyPayment": {
+                "type": "number",
+                "minimum": 0
+              },
+              "apr": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "properties": {
+        "estimatedMonthly": {
+          "type": "number",
+          "minimum": 0
+        },
+        "nextBillEstimate": {
+          "type": "object",
+          "properties": {
+            "promoCharge": {
+              "type": "number"
+            },
+            "proration": {
+              "type": "number"
+            },
+            "deviceCharge": {
+              "type": "number"
+            },
+            "otherChargesCredits": {
+              "type": "number"
+            },
+            "estimatedTotal": {
+              "type": "number"
+            }
+          }
+        },
+        "taxes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fees": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "properties": {
+        "portIn": {
+          "type": "boolean"
+        },
+        "insurance": {
+          "type": "boolean"
+        },
+        "bundle": {
+          "type": "boolean"
+        }
+      }
+    },
+    "legal": {
+      "type": "object",
+      "properties": {
+        "termsVersion": {
+          "type": "string"
+        },
+        "consents": {
+          "type": "object",
+          "properties": {
+            "electronicSignature": {
+              "type": "boolean"
+            },
+            "privacyNotice": {
+              "type": "boolean"
+            },
+            "creditCheck": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

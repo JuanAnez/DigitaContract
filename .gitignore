@@ -1,0 +1,17 @@
+# IDE
+.idea/
+*.iml
+# Build/packaging
+target/
+out/
+*.log
+# SO / temporales
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+# Tests/coverage
+surefire-reports/
+jacoco*.exec
+# Docker/compose override locals
+docker-compose.override.yml
