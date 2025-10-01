@@ -99,7 +99,7 @@ public class PrefillService {
 
     private JsonNode fetchFromMockoon(String contractUid) throws IOException {
         String mockoonUrl = environment.getProperty("sales.mockoon.base-url", "http://localhost:3000");
-        String endpoint = mockoonUrl + "/api/contracts/" + contractUid + "/prefill";
+        String endpoint = mockoonUrl + "/api/sif/sales/" + contractUid;
         
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -114,7 +114,9 @@ public class PrefillService {
             );
             
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+                JsonNode responseNode = objectMapper.readTree(response.getBody());
+                // El endpoint /api/sif/sales/{contractUid} devuelve la respuesta directamente
+                return responseNode;
             } else {
                 throw new MockNotFoundException("Mockoon API returned error for contract: " + contractUid);
             }

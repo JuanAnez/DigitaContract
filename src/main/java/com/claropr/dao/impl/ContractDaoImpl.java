@@ -103,8 +103,30 @@ public class ContractDaoImpl implements ContractDao {
 
     @Override
     public void updateSignedPdfWithObjectStorage(String contractUid, String objectUri, String sha256, String storageType) {
-        String sql = "UPDATE IC_ADMIN.CONTRACTS SET SIGNED_PDF_URI = ?, SIGNED_PDF_SHA256 = ?, PDF_STORAGE_TYPE = ?, PDF_GENERATED_AT = SYSTIMESTAMP, UPDATED_AT = SYSTIMESTAMP WHERE CONTRACT_UID = ?";
-        icAdminJdbcTemplate.update(sql, objectUri, sha256, storageType, contractUid);
+        try {
+            System.out.println("=== ContractDaoImpl.updateSignedPdfWithObjectStorage START ===");
+            System.out.println("Contract UID: " + contractUid);
+            System.out.println("Object URI: " + objectUri);
+            System.out.println("SHA256: " + sha256);
+            System.out.println("Storage Type: " + storageType);
+            
+            String sql = "UPDATE IC_ADMIN.CONTRACTS SET SIGNED_PDF_URI = ?, SIGNED_PDF_SHA256 = ?, PDF_STORAGE_TYPE = ?, PDF_GENERATED_AT = SYSTIMESTAMP, UPDATED_AT = SYSTIMESTAMP WHERE CONTRACT_UID = ?";
+            int rowsAffected = icAdminJdbcTemplate.update(sql, objectUri, sha256, storageType, contractUid);
+            
+            System.out.println("Rows affected: " + rowsAffected);
+            if (rowsAffected == 0) {
+                System.err.println("⚠️ WARNING: No rows were updated. Contract UID might not exist: " + contractUid);
+            } else {
+                System.out.println("✅ Successfully updated contract with signed PDF information");
+            }
+            
+            System.out.println("=== ContractDaoImpl.updateSignedPdfWithObjectStorage SUCCESS ===");
+        } catch (Exception e) {
+            System.err.println("=== ContractDaoImpl.updateSignedPdfWithObjectStorage ERROR ===");
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     @Override
@@ -330,4 +352,5 @@ public class ContractDaoImpl implements ContractDao {
             return event;
         }
     }
+
 }

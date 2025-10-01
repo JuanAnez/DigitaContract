@@ -23,6 +23,7 @@ public interface ContractService {
     // Consultas
     ContractRecord getContractByUid(String contractUid);
     SalesContractPayload getContractDataByUid(String contractUid);
+    SalesContractPayload getContractCompleteData(String contractUid);
     List<ContractRecord> getContractsByStatus(String status);
     List<ContractRecord> getAllContracts();
     List<AuditLog> getContractAuditLog(String contractUid);
@@ -30,6 +31,7 @@ public interface ContractService {
     
     // Obtener firmas guardadas
     Map<String, String> getContractSignatures(String contractUid);
+    
     
     // PDF firmado
     String saveSignedPdf(String contractUid, byte[] pdfBytes) throws Exception;

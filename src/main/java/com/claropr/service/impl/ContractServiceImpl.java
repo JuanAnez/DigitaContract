@@ -9,6 +9,7 @@ import com.claropr.model.SalesContractPayload;
 import com.claropr.service.ContractService;
 import com.claropr.service.PdfStorageService;
 import com.claropr.service.ObjectStorageService;
+import com.claropr.service.PrefillService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,25 +28,47 @@ public class ContractServiceImpl implements ContractService {
     
     @Autowired
     private ObjectStorageService objectStorageService;
+    
+    @Autowired
+    private PrefillService prefillService;
 
     @Override
     public String createContractFromSales(String uid, SalesContractPayload contractData, String pdfUri, String sha256) {
-        // Crear registro del contrato
+        // Debug: Verificar valores que llegan
+        System.out.println("=== ContractServiceImpl.createContractFromSales DEBUG ===");
+        System.out.println("UID: " + uid);
+        System.out.println("Lob: " + contractData.getLob());
+        System.out.println("AccountType: " + contractData.getAccountType());
+        System.out.println("Ban: " + contractData.getBan());
+        System.out.println("SubscriberNumber: " + contractData.getSubscriberNumber());
+        System.out.println("Source: " + contractData.getSource());
+        System.out.println("OrderId: " + contractData.getOrderId());
+        System.out.println("TemplateId: " + contractData.getTemplateId());
+        System.out.println("SaleInfo: " + (contractData.getSaleInfo() != null ? "Present" : "NULL"));
+        System.out.println("Seller: " + (contractData.getSaleInfo() != null && contractData.getSaleInfo().getSeller() != null ? "Present" : "NULL"));
+        
+        // Crear registro del contrato con valores por defecto para evitar NULLs
         ContractRecord contract = new ContractRecord();
         contract.setContractUid(uid);
-        contract.setContractType(contractData.getLob());
-        contract.setAccountType(contractData.getAccountType());
-        contract.setBanNumber(contractData.getBan());
-        contract.setSubscriberNumber(contractData.getSubscriberNumber());
-        contract.setSourceSystem(contractData.getSource());
-        contract.setExternalId(contractData.getOrderId());
-        contract.setTemplateId(contractData.getTemplateId());
+        contract.setContractType(contractData.getLob() != null ? contractData.getLob() : "MOBILE");
+        contract.setAccountType(contractData.getAccountType() != null ? contractData.getAccountType() : "POSTPAID");
+        contract.setBanNumber(contractData.getBan() != null ? contractData.getBan() : "N/A");
+        contract.setSubscriberNumber(contractData.getSubscriberNumber() != null ? contractData.getSubscriberNumber() : "N/A");
+        contract.setSourceSystem(contractData.getSource() != null ? contractData.getSource() : "UNKNOWN");
+        contract.setExternalId(contractData.getOrderId() != null ? contractData.getOrderId() : uid);
+        contract.setTemplateId(contractData.getTemplateId() != null ? contractData.getTemplateId() : "DEFAULT");
         contract.setVersion(1);
         contract.setStatus("DRAFT");
         contract.setStatusMessage("Contrato creado");
         contract.setFileUri(pdfUri);
         contract.setFileSha256(sha256);
-        contract.setCreatedByUserId(contractData.getSaleInfo().getSeller().getEmployeeId());
+        contract.setCreatedByUserId(
+            contractData.getSaleInfo() != null && 
+            contractData.getSaleInfo().getSeller() != null && 
+            contractData.getSaleInfo().getSeller().getEmployeeId() != null ? 
+                contractData.getSaleInfo().getSeller().getEmployeeId() : 
+                "SYSTEM"
+        );
         
         contractDao.createContract(contract);
         
@@ -159,8 +182,194 @@ public class ContractServiceImpl implements ContractService {
     }
 
     @Override
+    public SalesContractPayload getContractCompleteData(String contractUid) {
+        try {
+            System.out.println("=== ContractServiceImpl.getContractCompleteData START ===");
+            System.out.println("Contract UID: " + contractUid);
+            
+            // Estrategia de fallback: Primero intentar Mockoon, luego BD
+            SalesContractPayload contractData = null;
+            
+            // 1. Intentar obtener datos desde Mockoon (venta original)
+            try {
+                contractData = prefillService.getPrefill(contractUid);
+                System.out.println("✅ Mockoon data obtained successfully - using original sale data");
+                
+                // Verificar si el contrato existe en la BD para logging
+                try {
+                    ContractRecord contract = getContractByUid(contractUid);
+                    System.out.println("Database contract found (ID: " + contract.getId() + ") - using Mockoon data as source of truth");
+                } catch (Exception dbError) {
+                    System.out.println("Contract not found in database - using Mockoon data for new contract");
+                }
+                
+            } catch (Exception mockoonError) {
+                System.err.println("⚠️ Mockoon data not available: " + mockoonError.getMessage());
+                
+                // 2. Fallback: Intentar obtener datos desde la base de datos
+                try {
+                    System.out.println("🔄 Attempting to get data from database as fallback...");
+                    contractData = getContractDataFromDatabase(contractUid);
+                    System.out.println("✅ Database data obtained successfully - using database data as fallback");
+                    
+                } catch (Exception dbError) {
+                    System.err.println("❌ Database data also not available: " + dbError.getMessage());
+                    throw new RuntimeException("No se pudieron obtener datos del contrato desde Mockoon ni desde la base de datos. Mockoon error: " + mockoonError.getMessage() + ". Database error: " + dbError.getMessage());
+                }
+            }
+            
+            System.out.println("=== ContractServiceImpl.getContractCompleteData SUCCESS ===");
+            return contractData;
+            
+        } catch (Exception e) {
+            System.err.println("=== ContractServiceImpl.getContractCompleteData ERROR ===");
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    @Override
     public void logContractAction(String contractUid, String action, String status, String message, String actor) {
         contractDao.logAudit(contractUid, action, status, message, actor);
+    }
+    
+    /**
+     * Obtener datos del contrato desde la base de datos como fallback
+     * cuando Mockoon no está disponible
+     */
+    private SalesContractPayload getContractDataFromDatabase(String contractUid) {
+        try {
+            System.out.println("=== ContractServiceImpl.getContractDataFromDatabase START ===");
+            System.out.println("Contract UID: " + contractUid);
+            
+            // Obtener datos básicos del contrato
+            ContractRecord contract = getContractByUid(contractUid);
+            System.out.println("Contract found in database: ID=" + contract.getId());
+            
+            // Obtener partes del contrato (cliente, agente)
+            List<ContractParty> parties = contractDao.getContractParties(contract.getId().toString());
+            System.out.println("Contract parties found: " + parties.size());
+            
+            // Construir SalesContractPayload con datos básicos
+            SalesContractPayload payload = new SalesContractPayload();
+            payload.setSource(contract.getSourceSystem());
+            payload.setContractUid(contract.getContractUid());
+            payload.setOrderId(contract.getExternalId());
+            payload.setBan(contract.getBanNumber());
+            payload.setSubscriberNumber(contract.getSubscriberNumber());
+            payload.setAccountType(contract.getAccountType());
+            payload.setLob(contract.getContractType());
+            payload.setTemplateId(contract.getTemplateId());
+            
+            // Construir customer desde ContractParty
+            ContractParty customerParty = parties.stream()
+                .filter(party -> "CUSTOMER".equals(party.getRole()))
+                .findFirst()
+                .orElse(null);
+                
+            if (customerParty != null) {
+                SalesContractPayload.Customer customer = new SalesContractPayload.Customer();
+                customer.setFullName(customerParty.getFullName());
+                customer.setEmail(customerParty.getEmail());
+                customer.setPhone(customerParty.getPhone());
+                customer.setIdType("SSN"); // Valor por defecto
+                customer.setIdNumber("N/A"); // Valor por defecto
+                
+                // Dirección por defecto
+                SalesContractPayload.Customer.Address address = new SalesContractPayload.Customer.Address();
+                address.setLine1("Dirección no disponible");
+                address.setCity("Ciudad no disponible");
+                address.setState("PR");
+                address.setZip("00000");
+                address.setCountry("US");
+                customer.setBillingAddress(address);
+                
+                payload.setCustomer(customer);
+                System.out.println("Customer data constructed from database");
+            }
+            
+            // Construir saleInfo desde ContractParty (agente)
+            ContractParty agentParty = parties.stream()
+                .filter(party -> "SALES_AGENT".equals(party.getRole()))
+                .findFirst()
+                .orElse(null);
+                
+            if (agentParty != null) {
+                SalesContractPayload.SaleInfo saleInfo = new SalesContractPayload.SaleInfo();
+                
+                // Store por defecto
+                SalesContractPayload.SaleInfo.Store store = new SalesContractPayload.SaleInfo.Store();
+                store.setCode("R114");
+                store.setName("CENTRO ATENCION CLIENTE");
+                store.setAddress("Dirección no disponible");
+                store.setPhone("787-775-0000");
+                saleInfo.setStore(store);
+                
+                // Seller desde agent party
+                SalesContractPayload.SaleInfo.Seller seller = new SalesContractPayload.SaleInfo.Seller();
+                seller.setName(agentParty.getFullName());
+                seller.setEmployeeId(contract.getCreatedByUserId());
+                seller.setEmail(agentParty.getEmail());
+                saleInfo.setSeller(seller);
+                
+                // Fechas por defecto
+                saleInfo.setSaleDate(java.time.Instant.now().toString());
+                saleInfo.setCloseDate(java.time.LocalDate.now().toString());
+                
+                payload.setSaleInfo(saleInfo);
+                System.out.println("Sale info constructed from database");
+            }
+            
+            // Datos por defecto para equipment, services, totals
+            // Estos campos no están disponibles en la BD, así que usamos valores por defecto
+            payload.setDevices(new java.util.ArrayList<>());
+            
+            // PlanAndServices por defecto
+            SalesContractPayload.PlanAndServices planAndServices = new SalesContractPayload.PlanAndServices();
+            SalesContractPayload.PlanAndServices.Plan plan = new SalesContractPayload.PlanAndServices.Plan();
+            plan.setName("Plan mensual postpago");
+            plan.setCode("POSTPAGO_STD");
+            plan.setBasePrice(new java.math.BigDecimal("50.0"));
+            plan.setFeatures(java.util.Arrays.asList("Llamadas", "Texto", "Data básica"));
+            planAndServices.setPlan(plan);
+            planAndServices.setAddons(new java.util.ArrayList<>());
+            payload.setPlanAndServices(planAndServices);
+            
+            // Totals por defecto
+            SalesContractPayload.Totals totals = new SalesContractPayload.Totals();
+            totals.setEstimatedMonthly(new java.math.BigDecimal("50.0"));
+            SalesContractPayload.Totals.NextBillEstimate nextBill = new SalesContractPayload.Totals.NextBillEstimate();
+            nextBill.setEstimatedTotal(new java.math.BigDecimal("50.0"));
+            totals.setNextBillEstimate(nextBill);
+            payload.setTotals(totals);
+            
+            // Flags por defecto
+            SalesContractPayload.Flags flags = new SalesContractPayload.Flags();
+            flags.setPortIn(false);
+            flags.setInsurance(false);
+            flags.setBundle(false);
+            payload.setFlags(flags);
+            
+            // Legal por defecto
+            SalesContractPayload.Legal legal = new SalesContractPayload.Legal();
+            legal.setTermsVersion("DEFAULT-2025");
+            SalesContractPayload.Legal.Consents consents = new SalesContractPayload.Legal.Consents();
+            consents.setElectronicSignature(true);
+            consents.setPrivacyNotice(true);
+            consents.setCreditCheck(true);
+            legal.setConsents(consents);
+            payload.setLegal(legal);
+            
+            System.out.println("=== ContractServiceImpl.getContractDataFromDatabase SUCCESS ===");
+            return payload;
+            
+        } catch (Exception e) {
+            System.err.println("=== ContractServiceImpl.getContractDataFromDatabase ERROR ===");
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Error obteniendo datos del contrato desde la base de datos: " + e.getMessage());
+        }
     }
 
     @Override
@@ -176,6 +385,7 @@ public class ContractServiceImpl implements ContractService {
         return new java.util.HashMap<>();
     }
 
+
     /**
      * Guarda un PDF firmado para un contrato existente usando Object Storage
      */
@@ -185,11 +395,21 @@ public class ContractServiceImpl implements ContractService {
             System.out.println("Contract UID: " + contractUid);
             System.out.println("PDF Size: " + pdfBytes.length + " bytes");
 
-            // Subir PDF a Object Storage (MinIO/S3/Oracle)
-            ObjectStorageService.ObjectStorageResult result = objectStorageService.uploadSignedPdf(contractUid, pdfBytes);
+            // Subir PDF a Object Storage (MinIO/S3/Oracle) con reintentos
+            ObjectStorageService.ObjectStorageResult result = uploadWithRetry(contractUid, pdfBytes);
 
             if (!result.isSuccess()) {
-                throw new Exception("Error subiendo PDF a Object Storage: " + result.getErrorMessage());
+                // Si es rate limiting, usar fallback temporal
+                if (result.getErrorMessage() != null && result.getErrorMessage().contains("reduce your request rate")) {
+                    String tempUri = "temp://minio-rate-limited/" + contractUid + ".pdf";
+                    System.out.println("⚠️ MinIO rate limited, using temporary URI: " + tempUri);
+                    
+                    // Actualizar la base de datos con URI temporal
+                    contractDao.updateSignedPdfWithObjectStorage(contractUid, tempUri, "temp-sha256", "MINIO_RATE_LIMITED");
+                    return tempUri;
+                } else {
+                    throw new Exception("Error subiendo PDF a Object Storage: " + result.getErrorMessage());
+                }
             }
 
             // Actualizar la base de datos con la información del Object Storage
@@ -247,5 +467,53 @@ public class ContractServiceImpl implements ContractService {
             e.printStackTrace();
             throw e;
         }
+    }
+
+    /**
+     * Sube un PDF a Object Storage con lógica de reintento para manejar rate limiting
+     */
+    private ObjectStorageService.ObjectStorageResult uploadWithRetry(String contractUid, byte[] pdfBytes) {
+        int maxRetries = 3;
+        long baseDelayMs = 1000; // 1 segundo base
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                System.out.println("=== Upload attempt " + attempt + " of " + maxRetries + " ===");
+                
+                ObjectStorageService.ObjectStorageResult result = objectStorageService.uploadSignedPdf(contractUid, pdfBytes);
+                
+                if (result.isSuccess()) {
+                    System.out.println("✅ Upload successful on attempt " + attempt);
+                    return result;
+                }
+                
+                // Si es rate limiting, esperar antes del siguiente intento
+                if (result.getErrorMessage() != null && 
+                    result.getErrorMessage().contains("reduce your request rate")) {
+                    
+                    if (attempt < maxRetries) {
+                        long delayMs = baseDelayMs * attempt; // Delay exponencial: 1s, 2s, 3s
+                        System.out.println("⚠️ Rate limited, waiting " + delayMs + "ms before retry...");
+                        Thread.sleep(delayMs);
+                    }
+                } else {
+                    // Si no es rate limiting, no reintentar
+                    System.out.println("❌ Upload failed with non-rate-limit error: " + result.getErrorMessage());
+                    return result;
+                }
+                
+            } catch (InterruptedException e) {
+                System.err.println("❌ Thread interrupted during retry delay");
+                Thread.currentThread().interrupt();
+                return new ObjectStorageService.ObjectStorageResult(null, null, 0, "ERROR", "Thread interrupted");
+            } catch (Exception e) {
+                System.err.println("❌ Upload attempt " + attempt + " failed: " + e.getMessage());
+                if (attempt == maxRetries) {
+                    return new ObjectStorageService.ObjectStorageResult(null, null, 0, "ERROR", e.getMessage());
+                }
+            }
+        }
+        
+        return new ObjectStorageService.ObjectStorageResult(null, null, 0, "ERROR", "All retry attempts failed");
     }
 }

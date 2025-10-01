@@ -33,4 +33,5 @@ public interface ContractDao {
     void logDelivery(String contractUid, String channel, String address, String status, 
                     String providerMsgId, String errorMessage);
     List<DeliveryEvent> getDeliveryEvents(String contractId);
+    
 }

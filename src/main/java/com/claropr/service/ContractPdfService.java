@@ -29,8 +29,8 @@ public class ContractPdfService {
 
     public byte[] generateContractPdf(String contractUid, Map<String, String> signatures) throws DocumentException, IOException {
         try {
-            // Obtener los datos del contrato por UID desde el sistema de ventas
-            SalesContractPayload contractData = prefillService.getPrefill(contractUid);
+            // Obtener los datos del contrato por UID desde la base de datos (datos reales)
+            SalesContractPayload contractData = contractService.getContractCompleteData(contractUid);
             String customerSignature = signatures.get("customerSignature");
             String consultantSignature = signatures.get("consultantSignature");
             

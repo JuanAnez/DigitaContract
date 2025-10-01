@@ -44,6 +44,23 @@ public class ContractManagementController {
         }
     }
 
+    @GetMapping("/{uid}/complete")
+    public ApiResponseDTO<SalesContractPayload> getContractComplete(@PathVariable String uid) {
+        try {
+            System.out.println("=== ContractManagementController.getContractComplete ===");
+            System.out.println("Getting complete contract data for UID: " + uid);
+            
+            // Obtener datos completos del contrato desde la base de datos
+            SalesContractPayload contractData = contractService.getContractCompleteData(uid);
+            
+            return ApiResponseDTO.create(200, "Success", contractData);
+        } catch (Exception e) {
+            System.err.println("Error getting complete contract data: " + e.getMessage());
+            e.printStackTrace();
+            return ApiResponseDTO.create(500, "Error retrieving complete contract data: " + e.getMessage(), null);
+        }
+    }
+
     @GetMapping("/status/{status}")
     public ApiResponseDTO<List<ContractRecord>> getContractsByStatus(@PathVariable String status) {
         try {
@@ -59,6 +76,52 @@ public class ContractManagementController {
         try {
             List<ContractRecord> contracts = contractService.getAllContracts();
             return ApiResponseDTO.create(200, "Success", contracts);
+        } catch (Exception e) {
+            return ApiResponseDTO.create(500, "Error retrieving contracts: " + e.getMessage(), null);
+        }
+    }
+
+    @GetMapping("/list/paginated")
+    public ApiResponseDTO<Map<String, Object>> getContractsPaginated(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status) {
+        try {
+            List<ContractRecord> allContracts = contractService.getAllContracts();
+            
+            // Apply search filter
+            if (search != null && !search.trim().isEmpty()) {
+                allContracts = allContracts.stream()
+                    .filter(contract -> 
+                        contract.getContractUid().toLowerCase().contains(search.toLowerCase())
+                    )
+                    .collect(java.util.stream.Collectors.toList());
+            }
+            
+            // Apply status filter
+            if (status != null && !status.trim().isEmpty() && !status.equals("all")) {
+                allContracts = allContracts.stream()
+                    .filter(contract -> contract.getStatus().equalsIgnoreCase(status))
+                    .collect(java.util.stream.Collectors.toList());
+            }
+            
+            // Calculate pagination
+            int totalItems = allContracts.size();
+            int totalPages = (int) Math.ceil((double) totalItems / size);
+            int startIndex = page * size;
+            int endIndex = Math.min(startIndex + size, totalItems);
+            
+            List<ContractRecord> paginatedContracts = allContracts.subList(startIndex, endIndex);
+            
+            Map<String, Object> response = new java.util.HashMap<>();
+            response.put("contracts", paginatedContracts);
+            response.put("totalItems", totalItems);
+            response.put("totalPages", totalPages);
+            response.put("currentPage", page);
+            response.put("pageSize", size);
+            
+            return ApiResponseDTO.create(200, "Success", response);
         } catch (Exception e) {
             return ApiResponseDTO.create(500, "Error retrieving contracts: " + e.getMessage(), null);
         }
@@ -93,6 +156,7 @@ public class ContractManagementController {
             return ApiResponseDTO.create(500, "Error retrieving signatures: " + e.getMessage(), null);
         }
     }
+
 
     @PostMapping("/{uid}/save-signed-pdf")
     public ApiResponseDTO<String> saveSignedPdf(@PathVariable String uid, @RequestBody byte[] pdfBytes) {
@@ -152,28 +216,43 @@ public class ContractManagementController {
     }
 
     @PostMapping("/{uid}/generate-and-send")
-    public ApiResponseDTO<String> generateAndSendContract(@PathVariable String uid, 
+    public ResponseEntity<byte[]> generateAndSendContract(@PathVariable String uid, 
                                                           @RequestBody Map<String, String> signatures) {
         try {
-            // Obtener datos del contrato desde el sistema de ventas (Mockoon)
-            SalesContractPayload contractData = prefillService.getPrefill(uid);
+            System.out.println("=== ContractManagementController.generateAndSendContract START ===");
+            System.out.println("Contract UID: " + uid);
+            System.out.println("Customer signature present: " + (signatures.get("customerSignature") != null));
+            System.out.println("Consultant signature present: " + (signatures.get("consultantSignature") != null));
             
-            // Generar PDF
+            // Obtener datos del contrato desde la base de datos (datos reales)
+            SalesContractPayload contractData = contractService.getContractCompleteData(uid);
+            System.out.println("Contract data obtained successfully from database");
+            
+            // Generar PDF con las firmas
             byte[] pdfBytes = contractPdfService.generateContractPdf(contractData, 
                 signatures.get("customerSignature"), signatures.get("consultantSignature"));
+            System.out.println("PDF generated successfully, size: " + pdfBytes.length + " bytes");
             
-            // Crear contrato en la base de datos
-            String contractId = contractService.createContractFromSales(uid, contractData, 
-                "contract-" + uid + ".pdf", "sha256-hash-placeholder");
-            
-            // Guardar PDF firmado
+            // Verificar si el contrato existe, si no existe, crearlo
             try {
-                String signedPdfPath = contractService.saveSignedPdf(uid, pdfBytes);
-                System.out.println("PDF firmado guardado en: " + signedPdfPath);
-            } catch (Exception saveError) {
-                System.err.println("Error guardando PDF firmado: " + saveError.getMessage());
-                saveError.printStackTrace();
+                ContractRecord existingContract = contractService.getContractByUid(uid);
+                System.out.println("✅ Contract already exists in database: " + existingContract.getId());
+            } catch (Exception getError) {
+                // Contrato no existe, crearlo
+                try {
+                    contractService.createContractFromSales(uid, contractData, 
+                        "contract-" + uid + ".pdf", "sha256-hash-placeholder");
+                    System.out.println("✅ Contract created in database");
+                } catch (Exception createError) {
+                    System.err.println("❌ Error creating contract in database: " + createError.getMessage());
+                    createError.printStackTrace();
+                    // Continuar aunque falle la creación
+                }
             }
+            
+            // Guardar PDF firmado en MinIO y actualizar URI en base de datos
+            String signedPdfUri = contractService.saveSignedPdf(uid, pdfBytes);
+            System.out.println("✅ PDF firmado procesado: " + signedPdfUri);
             
             // Intentar enviar por email (no crítico si falla)
             try {
@@ -183,19 +262,40 @@ public class ContractManagementController {
                 // Actualizar estado del contrato
                 contractService.updateContractStatus(uid, "SIGNED", "Contract signed and sent via email");
                 
-                return ApiResponseDTO.create(200, "Contract generated and sent successfully", null);
+                System.out.println("✅ Email enviado exitosamente");
+                
+                // Devolver el PDF como bytes
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_PDF);
+                headers.setContentDispositionFormData("attachment", "contract-" + uid + "-signed.pdf");
+                
+                return ResponseEntity.ok()
+                        .headers(headers)
+                        .body(pdfBytes);
+                        
             } catch (Exception emailError) {
                 // Si el email falla, solo logear el error pero continuar
-                System.err.println("Error sending email: " + emailError.getMessage());
+                System.err.println("⚠️ Error sending email: " + emailError.getMessage());
                 emailError.printStackTrace();
                 
                 // Actualizar estado del contrato sin email
                 contractService.updateContractStatus(uid, "SIGNED", "Contract signed but email failed: " + emailError.getMessage());
                 
-                return ApiResponseDTO.create(200, "Contract generated successfully (email failed)", null);
+                System.out.println("✅ Contract generated successfully (email failed)");
+                
+                // Devolver el PDF como bytes aunque el email falle
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_PDF);
+                headers.setContentDispositionFormData("attachment", "contract-" + uid + "-signed.pdf");
+                
+                return ResponseEntity.ok()
+                        .headers(headers)
+                        .body(pdfBytes);
             }
         } catch (Exception e) {
-            return ApiResponseDTO.create(500, "Error generating and sending contract: " + e.getMessage(), null);
+            System.err.println("❌ Error in generateAndSendContract: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).build();
         }
     }
 }
